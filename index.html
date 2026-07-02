@@ -95,6 +95,23 @@
 
   .list{flex:1 1 auto; overflow-y:auto; padding:2px 10px 10px;}
   .list h2{font-size:13px; color:var(--neutral); text-transform:uppercase; letter-spacing:1px; margin:8px 4px;}
+
+  /* Zgodovina — gumb + drawer ob strani */
+  .histbar{padding:6px 10px 0;}
+  .histbtn{width:100%; font-family:inherit; font-size:18px; font-weight:800; color:#fff; background:var(--brand);
+    border:0; border-radius:12px; padding:14px 0; cursor:pointer;}
+  .histbtn:active{background:var(--brand-dark);}
+  .histbtn span{background:var(--accent); border-radius:20px; padding:2px 11px; margin-left:6px; font-variant-numeric:tabular-nums;}
+  .drawer-ov{position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; z-index:40;}
+  .drawer-ov.open{display:block;}
+  .drawer{position:fixed; top:0; right:0; height:100%; width:min(92vw,440px); background:#fff; z-index:50;
+    transform:translateX(101%); transition:transform .22s ease; display:flex; flex-direction:column; box-shadow:-4px 0 16px rgba(0,0,0,.25);}
+  .drawer.open{transform:translateX(0);}
+  .drawer-h{display:flex; align-items:center; justify-content:space-between; background:var(--brand); color:#fff; padding:12px 14px; flex:0 0 auto;}
+  .drawer-h b{font-size:18px;}
+  .drawer-x{font-family:inherit; font-size:24px; font-weight:800; color:#fff; background:transparent; border:0; cursor:pointer; padding:0 6px;}
+  .drawer-b{flex:1 1 auto; overflow-y:auto; padding:10px;}
+  .drawer-b .muted{padding:24px 10px;}
   .row{display:flex; align-items:center; justify-content:space-between; background:#fff; border:2px solid var(--line);
     border-left-width:8px; border-radius:10px; padding:10px 12px; margin-bottom:8px;}
   .row.tap{cursor:pointer;}
@@ -151,8 +168,8 @@
   <!-- ===== ZASLON: Teme ===== -->
   <section class="screen" id="screenThemes">
     <div class="adder">
-      <input id="themeInput" type="text" placeholder="Ime teme / seanse (npr. Temelj – os A)" autocomplete="off">
-      <button id="themeAdd">+ Tema</button>
+      <input id="themeInput" type="text" placeholder="Ime pozicije (npr. Temelj – os A)" autocomplete="off">
+      <button id="themeAdd">+ Pozicija</button>
     </div>
     <div class="cards" id="themeList"></div>
   </section>
@@ -198,14 +215,19 @@
 
     <button class="canceledit" id="cancelEdit">✕ Prekliči urejanje</button>
 
-    <section class="list" id="list">
-      <h2 id="listTitle">Točke</h2>
-      <div class="muted" id="empty">Ni še izmerjenih točk.</div>
-    </section>
+    <div class="histbar">
+      <button class="histbtn" id="histBtn">📋 Seznam točk <span id="histCount">0</span></button>
+    </div>
 
     <div class="reset">
-      <button id="btnReset">↻ Nov odčitek nazaj (reset teme)</button>
+      <button id="btnReset">↻ Nov odčitek nazaj (reset pozicije)</button>
     </div>
+
+    <div class="drawer-ov" id="drawerOv"></div>
+    <aside class="drawer" id="drawer">
+      <div class="drawer-h"><b id="drawerTitle">Seznam točk</b><button class="drawer-x" id="drawerClose">✕</button></div>
+      <div class="drawer-b" id="drawerBody"></div>
+    </aside>
   </section>
 
 <script type="module">
@@ -293,13 +315,15 @@ function renderProjects(){
 $("projAdd").onclick=addProject;
 $("projInput").addEventListener("keydown",e=>{ if(e.key==="Enter") addProject(); });
 async function addProject(){
-  const name=$("projInput").value.trim(); if(!name) return;
-  $("projInput").value="";
+  let name=$("projInput").value.trim();
+  if(!name) name="Projekt "+(projects.length+1);
+  $("projInput").value=""; $("projInput").blur();
   const {error}=await sb.from("nivelir_projects").insert({name});
-  if(error) alert("Napaka: "+error.message); else loadProjects();
+  if(error){ alert("Napaka: "+error.message); return; }
+  loadProjects();
 }
 async function delProject(p){
-  if(!confirm(`Izbrišem projekt "${p.name}" in vse njegove teme in meritve?`)) return;
+  if(!confirm(`Izbrišem projekt "${p.name}" in vse njegove pozicije in meritve?`)) return;
   await sb.from("nivelir_projects").delete().eq("id",p.id); loadProjects();
 }
 
@@ -316,8 +340,8 @@ async function loadThemes(){
 }
 function renderThemes(){
   const el=$("themeList");
-  if(!themes.length){ el.innerHTML='<div class="muted">Ni še tem. Dodaj prvo zgoraj.</div>'; return; }
-  el.innerHTML="<h2>Teme / seanse</h2>";
+  if(!themes.length){ el.innerHTML='<div class="muted">Ni še pozicij. Dodaj prvo zgoraj.</div>'; return; }
+  el.innerHTML="<h2>Pozicije</h2>";
   themes.forEach(t=>{
     const c=document.createElement("div"); c.className="card";
     const bs = (t.backsight==null) ? "brez odčitka nazaj" : ("horizont "+t.backsight.toFixed(3).replace(".",",")+" m");
@@ -332,13 +356,16 @@ function renderThemes(){
 $("themeAdd").onclick=addTheme;
 $("themeInput").addEventListener("keydown",e=>{ if(e.key==="Enter") addTheme(); });
 async function addTheme(){
-  const name=$("themeInput").value.trim(); if(!name) return;
-  $("themeInput").value="";
+  if(!project) return;
+  let name=$("themeInput").value.trim();
+  if(!name) name="Pozicija "+(themes.length+1);   // vedno ustvari (tudi brez imena)
+  $("themeInput").value=""; $("themeInput").blur();
   const {error}=await sb.from("nivelir_themes").insert({project_id:project.id, name, unit:"m"});
-  if(error) alert("Napaka: "+error.message); else loadThemes();
+  if(error){ alert("Napaka: "+error.message); return; }
+  loadThemes();
 }
 async function delTheme(t){
-  if(!confirm(`Izbrišem temo "${t.name}" in vse njene meritve?`)) return;
+  if(!confirm(`Izbrišem pozicijo "${t.name}" in vse njene meritve?`)) return;
   await sb.from("nivelir_themes").delete().eq("id",t.id); loadThemes();
 }
 
@@ -419,6 +446,7 @@ async function commit(){
   await loadMeasurements();
 }
 function startEdit(m){
+  closeDrawer();
   editingId=m.id; mode=m.mode;
   if(m.mode==="measure"){ entrySign=1; input=editValStr(m.reading); }
   else { entrySign=(m.delta<0?-1:1); input=editValStr(Math.abs(m.delta)); }
@@ -507,21 +535,26 @@ function render(){
   renderMeasurements();
 }
 function renderMeasurements(){
-  const list=$("list"); const empty=$("empty");
-  list.querySelectorAll(".row").forEach(r=>r.remove());
-  if(theme.backsight==null){ empty.style.display="block"; empty.textContent="Najprej vnesi odčitek nazaj."; return; }
-  empty.style.display = measurements.length?"none":"block";
-  if(!measurements.length) empty.textContent="Ni še izmerjenih točk.";
+  const body=$("drawerBody");
+  $("histCount").textContent=measurements.length;
+  $("drawerTitle").textContent="Seznam točk"+(theme&&theme.name?" — "+theme.name:"");
+  body.innerHTML="";
+  if(theme.backsight==null){ body.innerHTML='<div class="muted">Najprej vnesi odčitek nazaj na referenci.</div>'; return; }
   const frag=document.createDocumentFragment();
   frag.appendChild(mkRow(null,"ref", theme.ref_name||"Referenca", "odčitek nazaj "+fmt(theme.backsight)+" "+U()+" · klikni za ime", zeroStr()));
+  if(!measurements.length){
+    const m=document.createElement("div"); m.className="muted"; m.textContent="Ni še izmerjenih točk."; frag.appendChild(m);
+  }
   measurements.forEach(p=>{
     const c=klass(p.delta);
     const val=(c==="zero"?"±"+zeroStr():fmtSigned(p.delta))+" "+U();
     const sub=(p.mode==="setout"?"zakoličba • odčitaj ":"odčitek ")+fmt(p.reading)+" "+U();
     frag.appendChild(mkRow(p,c,p.name,sub,val));
   });
-  list.appendChild(frag);
+  body.appendChild(frag);
 }
+function openDrawer(){ $("drawer").classList.add("open"); $("drawerOv").classList.add("open"); }
+function closeDrawer(){ $("drawer").classList.remove("open"); $("drawerOv").classList.remove("open"); }
 function mkRow(p,cls,name,sub,delta){
   const row=document.createElement("div");
   const isEditing = p && editingId===p.id;
@@ -542,13 +575,16 @@ function mkRow(p,cls,name,sub,delta){
 
 // reset teme = pobriši backsight + meritve (nov postavitveni odčitek)
 $("btnReset").onclick=async()=>{
-  if(!confirm("Nov odčitek nazaj?\nPobrišejo se vse meritve te teme in postavitev (backsight + ime reference).")) return;
+  if(!confirm("Nov odčitek nazaj?\nPobrišejo se vse meritve te pozicije in postavitev (backsight + ime reference).")) return;
   await sb.from("nivelir_measurements").delete().eq("theme_id",theme.id);
   await sb.from("nivelir_themes").update({backsight:null, ref_name:null}).eq("id",theme.id);
   theme.backsight=null; theme.ref_name=null; input=""; entrySign=1; editingId=null; $("ptName").value="";
   await loadMeasurements();
 };
 $("cancelEdit").onclick=cancelEdit;
+$("histBtn").onclick=openDrawer;
+$("drawerClose").onclick=closeDrawer;
+$("drawerOv").onclick=closeDrawer;
 
 // tipkovnica
 $("keys").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) press(b.dataset.k); });
