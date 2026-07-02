@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 92" role="img" aria-label="Atren Invest">
+  <!-- Znak "Ai" (antracit) -->
+  <g fill="#3D3D3D">
+    <!-- A: trikotnik z okenskim izrezom in notranjim izrezom -->
+    <path fill-rule="evenodd" d="
+      M40,4 L74,78 L6,78 Z
+      M40,36 L58,72 L22,72 Z
+      M32,26 h13 v13 h-13 Z"/>
+    <!-- i: steber + pika -->
+    <rect x="88" y="30" width="13" height="48"/>
+    <rect x="88" y="10" width="13" height="13"/>
+  </g>
+  <!-- Napis -->
+  <text x="120" y="46" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" letter-spacing="2" fill="#EF7C00">ATREN</text>
+  <text x="122" y="74" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" letter-spacing="8" fill="#3D3D3D">INVEST</text>
+</svg>
