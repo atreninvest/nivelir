@@ -105,6 +105,15 @@
   .row .delta{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;}
   .row.plus .delta{color:var(--plus);} .row.minus .delta{color:var(--minus);}
   .row.zero .delta{color:var(--neutral);} .row.ref .delta{color:var(--brand);}
+  .row .rgt{display:flex; align-items:center; gap:10px;}
+  .rowdel{font-family:inherit; font-size:20px; font-weight:800; color:var(--minus); background:#fff;
+    border:2px solid var(--minus); border-radius:8px; width:40px; height:40px; cursor:pointer; flex:0 0 auto;}
+  .rowdel:active{background:var(--minus); color:#fff;}
+  .row.editing{border-color:var(--accent); border-left-color:var(--accent); background:#FFF6EC;}
+
+  .canceledit{display:none; margin:8px auto 0; width:calc(100% - 20px); font-family:inherit; font-size:16px; font-weight:800;
+    color:#fff; background:var(--minus); border:0; border-radius:10px; padding:12px 0; cursor:pointer;}
+  .canceledit:active{background:#9E0F0F;}
 
   .reset{padding:6px 10px 14px;}
   .reset button{width:100%; font-family:inherit; font-size:18px; font-weight:800; color:var(--brand-dark); background:#fff;
@@ -187,6 +196,8 @@
       <button class="confirm" data-k="ok" id="btnOk">Potrdi odčitek nazaj</button>
     </div>
 
+    <button class="canceledit" id="cancelEdit">✕ Prekliči urejanje</button>
+
     <section class="list" id="list">
       <h2 id="listTitle">Točke</h2>
       <div class="muted" id="empty">Ni še izmerjenih točk.</div>
@@ -210,6 +221,7 @@ let project = null;          // {id,name}
 let theme = null;            // {id,name,unit,backsight}
 let projects = [], themes = [], measurements = [];
 let input = "", entrySign = 1, mode = "measure";
+let editingId = null;        // id meritve v urejanju
 let channel = null;
 const TOL = 0.005;
 const FACTOR = {m:1, cm:100, mm:1000};
@@ -332,7 +344,7 @@ async function delTheme(t){
 
 // ===== MERITEV (level) =====
 async function openLevel(t){
-  theme=Object.assign({},t); input=""; entrySign=1; mode="measure"; show("level");
+  theme=Object.assign({},t); input=""; entrySign=1; mode="measure"; editingId=null; show("level");
   await loadMeasurements();
   render();
   // živo: meritve te teme + spremembe same teme (backsight/enota)
@@ -340,7 +352,7 @@ async function openLevel(t){
   channel = sb.channel("rt_level_"+t.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"nivelir_measurements",filter:`theme_id=eq.${t.id}`}, loadMeasurements)
     .on("postgres_changes",{event:"*",schema:"public",table:"nivelir_themes",filter:`id=eq.${t.id}`}, p=>{
-        if(p.new){ theme.backsight=p.new.backsight; theme.unit=p.new.unit; render(); } })
+        if(p.new){ theme.backsight=p.new.backsight; theme.unit=p.new.unit; theme.ref_name=p.new.ref_name; render(); } })
     .subscribe(st=>{ if(st==="SUBSCRIBED") setStatus(true,"Povezano (živo)"); });
 }
 async function loadMeasurements(){
@@ -367,23 +379,69 @@ function press(k){
   if(input.replace(",","").length>=7) return;
   input+=k; render();
 }
+function calcRD(v){   // vrne {reading, delta} glede na način; ali null če neveljavno
+  if(mode==="measure"){ if(v<0) return null; return {reading:v, delta:horizont()-v}; }
+  return {delta:v, reading:horizont()-v};
+}
 async function commit(){
   const v=parseInput(); if(isNaN(v)) return;
+  const nmField=$("ptName").value.trim();
+
+  // --- Urejanje obstoječe meritve ---
+  if(editingId){
+    const m=measurements.find(x=>x.id===editingId);
+    if(!m){ cancelEdit(); return; }
+    const rd=calcRD(v); if(!rd) return;
+    const {error}=await sb.from("nivelir_measurements")
+      .update({name:nmField||m.name, reading:rd.reading, delta:rd.delta, mode}).eq("id",editingId);
+    if(error){ alert("Napaka: "+error.message); return; }
+    editingId=null; input=""; entrySign=1; $("ptName").value="";
+    await loadMeasurements();
+    return;
+  }
+
+  // --- Odčitek nazaj (postavitev reference) ---
   if(theme.backsight==null){
     if(v<0) return;
-    const {error}=await sb.from("nivelir_themes").update({backsight:v}).eq("id",theme.id);
+    const refName=nmField||null;
+    const {error}=await sb.from("nivelir_themes").update({backsight:v, ref_name:refName}).eq("id",theme.id);
     if(error){ alert("Napaka: "+error.message); return; }
-    theme.backsight=v; input=""; render();
-  } else {
-    let reading, delta;
-    if(mode==="measure"){ if(v<0) return; reading=v; delta=horizont()-v; }
-    else { delta=v; reading=horizont()-v; }
-    let nm=$("ptName").value.trim(); if(!nm) nm="Točka "+(measurements.length+1);
-    input=""; entrySign=1; $("ptName").value="";
-    const {error}=await sb.from("nivelir_measurements").insert({theme_id:theme.id, name:nm, reading, delta, mode});
-    if(error){ alert("Napaka: "+error.message); return; }
-    await loadMeasurements();
+    theme.backsight=v; theme.ref_name=refName; input=""; $("ptName").value=""; render();
+    return;
   }
+
+  // --- Nova točka ---
+  const rd=calcRD(v); if(!rd) return;
+  const nm=nmField||"Točka "+(measurements.length+1);
+  input=""; entrySign=1; $("ptName").value="";
+  const {error}=await sb.from("nivelir_measurements").insert({theme_id:theme.id, name:nm, reading:rd.reading, delta:rd.delta, mode});
+  if(error){ alert("Napaka: "+error.message); return; }
+  await loadMeasurements();
+}
+function startEdit(m){
+  editingId=m.id; mode=m.mode;
+  if(m.mode==="measure"){ entrySign=1; input=editValStr(m.reading); }
+  else { entrySign=(m.delta<0?-1:1); input=editValStr(Math.abs(m.delta)); }
+  $("ptName").value=m.name;
+  render();
+  try{ $("screenLevel").scrollTop=0; window.scrollTo(0,0);}catch(e){}
+}
+function editValStr(meters){ return toU(meters).toFixed(DEC[U()]).replace(".",","); }
+function cancelEdit(){ editingId=null; input=""; entrySign=1; $("ptName").value=""; render(); }
+async function delMeasurement(m){
+  if(!confirm(`Izbrišem "${m.name}"?`)) return;
+  if(editingId===m.id){ editingId=null; input=""; entrySign=1; $("ptName").value=""; }
+  const {error}=await sb.from("nivelir_measurements").delete().eq("id",m.id);
+  if(error){ alert("Napaka: "+error.message); return; }
+  await loadMeasurements();
+}
+async function renameRef(){
+  const nn=prompt("Ime referenčne točke (kje stoji nivelir / reper):", theme.ref_name||"");
+  if(nn===null) return;
+  const name=nn.trim()||null;
+  const {error}=await sb.from("nivelir_themes").update({ref_name:name}).eq("id",theme.id);
+  if(error){ alert("Napaka: "+error.message); return; }
+  theme.ref_name=name; render();
 }
 async function setUnit(u){
   if(!theme || u===theme.unit) return;
@@ -397,15 +455,25 @@ function render(){
   const us=$("unitSeg").children; for(const b of us) b.className=(b.dataset.u===U()?"on":"");
   const ms=$("modeSeg").children; for(const b of ms) b.className=(b.dataset.m===mode?"on":"");
 
+  const editing = editingId ? measurements.find(m=>m.id===editingId) : null;
+  if(editingId && !editing) editingId=null;
+
   $("entryVal").textContent = input===""?zeroStr():input;
   $("entryUnit").textContent = U();
-  $("ptName").style.display = (theme.backsight!=null)?"block":"none";
+
+  $("ptName").style.display="block";   // ime-polje vedno vidno
+  if(editing) $("ptName").placeholder="Ime točke";
+  else if(theme.backsight==null) $("ptName").placeholder="Ime reference (kje stoji nivelir)";
+  else $("ptName").placeholder="Ime točke (neobvezno)";
+
   const showSign=(theme.backsight!=null && mode==="setout");
   $("signBtn").style.display=showSign?"inline-block":"none";
   $("signBtn").textContent=entrySign<0?"−":"+";
+  $("cancelEdit").style.display = editing ? "block" : "none";
 
   const nextName="Točka "+(measurements.length+1);
-  if(theme.backsight==null){ $("entryHint").textContent="Odčitek nazaj na referenci"; $("btnOk").textContent="Potrdi odčitek nazaj"; }
+  if(editing){ $("entryHint").textContent="Urejam: "+editing.name; $("btnOk").textContent="Shrani spremembo"; }
+  else if(theme.backsight==null){ $("entryHint").textContent="Odčitek nazaj + ime reference"; $("btnOk").textContent="Potrdi odčitek nazaj"; }
   else if(mode==="measure"){ $("entryHint").textContent="Odčitek na lati — "+nextName; $("btnOk").textContent="Potrdi "+nextName.toLowerCase(); }
   else{ $("entryHint").textContent="Ciljna višina — "+nextName+" (± glede na ref.)"; $("btnOk").textContent="Izračunaj odčitek"; }
 
@@ -413,7 +481,11 @@ function render(){
   $("stHorizont").textContent=(theme.backsight==null)?"—":fmt(horizont())+" "+U();
 
   const rl=$("resLabel"), rv=$("resValue"), rn=$("resNum"), ru=$("resUnit"), rs=$("resSub");
-  if(theme.backsight==null){
+  if(editing){
+    rl.textContent="Urejanje — "+editing.name; rv.className="value info";
+    rn.textContent="Popravi in shrani"; ru.textContent="";
+    rs.textContent=(mode==="measure"?"odčitek late":"ciljna višina")+" • "+(input===""?zeroStr():input)+" "+U();
+  } else if(theme.backsight==null){
     rl.textContent="Referenca"; rv.className="value info"; rn.textContent="Vnesi odčitek nazaj"; ru.textContent=""; rs.textContent="na referenčni točki (višina 0)";
   } else if(!measurements.length){
     rl.textContent="Pripravljen"; rv.className="value info";
@@ -441,7 +513,7 @@ function renderMeasurements(){
   empty.style.display = measurements.length?"none":"block";
   if(!measurements.length) empty.textContent="Ni še izmerjenih točk.";
   const frag=document.createDocumentFragment();
-  frag.appendChild(mkRow(null,"ref","Referenca","odčitek nazaj "+fmt(theme.backsight)+" "+U(),zeroStr()));
+  frag.appendChild(mkRow(null,"ref", theme.ref_name||"Referenca", "odčitek nazaj "+fmt(theme.backsight)+" "+U()+" · klikni za ime", zeroStr()));
   measurements.forEach(p=>{
     const c=klass(p.delta);
     const val=(c==="zero"?"±"+zeroStr():fmtSigned(p.delta))+" "+U();
@@ -451,25 +523,32 @@ function renderMeasurements(){
   list.appendChild(frag);
 }
 function mkRow(p,cls,name,sub,delta){
-  const row=document.createElement("div"); row.className="row "+cls+(p?" tap":"");
-  row.innerHTML=`<div class="name">${esc(name)}<small>${sub}</small></div><div class="delta">${delta}</div>`;
-  if(p) row.onclick=()=>renameMeasurement(p);
+  const row=document.createElement("div");
+  const isEditing = p && editingId===p.id;
+  row.className="row "+cls+((p||cls==="ref")?" tap":"")+(isEditing?" editing":"");
+  const right = p
+    ? `<div class="rgt"><div class="delta">${delta}</div><button class="rowdel" title="Izbriši">✕</button></div>`
+    : `<div class="delta">${delta}</div>`;
+  row.innerHTML=`<div class="name">${esc(name)}<small>${sub}</small></div>${right}`;
+  if(p){
+    row.querySelector(".name").onclick=()=>startEdit(p);
+    row.querySelector(".delta").onclick=()=>startEdit(p);
+    row.querySelector(".rowdel").onclick=(e)=>{ e.stopPropagation(); delMeasurement(p); };
+  } else if(cls==="ref"){
+    row.querySelector(".name").onclick=()=>renameRef();
+  }
   return row;
-}
-async function renameMeasurement(p){
-  const nn=prompt("Ime točke:",p.name); if(nn===null) return;
-  const name=nn.trim(); if(!name) return;
-  await sb.from("nivelir_measurements").update({name}).eq("id",p.id); loadMeasurements();
 }
 
 // reset teme = pobriši backsight + meritve (nov postavitveni odčitek)
 $("btnReset").onclick=async()=>{
-  if(!confirm("Nov odčitek nazaj?\nPobrišejo se vse meritve te teme in postavitev (backsight).")) return;
+  if(!confirm("Nov odčitek nazaj?\nPobrišejo se vse meritve te teme in postavitev (backsight + ime reference).")) return;
   await sb.from("nivelir_measurements").delete().eq("theme_id",theme.id);
-  await sb.from("nivelir_themes").update({backsight:null}).eq("id",theme.id);
-  theme.backsight=null; input=""; entrySign=1; $("ptName").value="";
+  await sb.from("nivelir_themes").update({backsight:null, ref_name:null}).eq("id",theme.id);
+  theme.backsight=null; theme.ref_name=null; input=""; entrySign=1; editingId=null; $("ptName").value="";
   await loadMeasurements();
 };
+$("cancelEdit").onclick=cancelEdit;
 
 // tipkovnica
 $("keys").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) press(b.dataset.k); });
