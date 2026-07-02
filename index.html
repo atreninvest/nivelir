@@ -306,8 +306,7 @@ function renderProjects(){
     const c=document.createElement("div"); c.className="card";
     c.innerHTML=`<div class="t">${esc(p.name)}</div><div style="display:flex;align-items:center;gap:4px">
       <button class="del" data-del="${p.id}" title="Izbriši">✕</button><span class="go">›</span></div>`;
-    c.querySelector(".t").onclick=()=>openThemes(p);
-    c.querySelector(".go").onclick=()=>openThemes(p);
+    c.onclick=()=>openThemes(p);
     c.querySelector("[data-del]").onclick=e=>{e.stopPropagation(); delProject(p);};
     el.appendChild(c);
   });
@@ -347,8 +346,7 @@ function renderThemes(){
     const bs = (t.backsight==null) ? "brez odčitka nazaj" : ("horizont "+t.backsight.toFixed(3).replace(".",",")+" m");
     c.innerHTML=`<div class="t">${esc(t.name)}<small>${bs}</small></div><div style="display:flex;align-items:center;gap:4px">
       <button class="del" data-del="${t.id}" title="Izbriši">✕</button><span class="go">›</span></div>`;
-    c.querySelector(".t").onclick=()=>openLevel(t);
-    c.querySelector(".go").onclick=()=>openLevel(t);
+    c.onclick=()=>openLevel(t);
     c.querySelector("[data-del]").onclick=e=>{e.stopPropagation(); delTheme(t);};
     el.appendChild(c);
   });
