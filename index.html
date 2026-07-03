@@ -75,6 +75,13 @@
   .status b{display:block; font-size:19px; color:var(--brand); font-variant-numeric:tabular-nums;}
   .status span{color:var(--neutral); text-transform:uppercase; letter-spacing:.5px; font-size:11px;}
 
+  .refbar{display:block; width:100%; text-align:left; font-family:inherit; font-weight:800; font-size:15px;
+    color:var(--ink); background:#FFF6EC; border:0; border-bottom:2px solid var(--line); border-left:8px solid var(--accent);
+    padding:9px 12px; cursor:pointer;}
+  .refbar:active{background:#FCE9D2;}
+  .refbar .rn{color:var(--accent-dark);}
+  .refbar .ed{float:right; font-size:12px; color:var(--neutral); font-weight:700;}
+
   .entry{text-align:center; padding:6px 10px 2px;}
   .entry .hint{font-size:14px; color:var(--brand); font-weight:800; text-transform:uppercase; letter-spacing:.5px; min-height:16px;}
   .entry .ptname{display:none; width:100%; max-width:340px; margin:6px auto 2px; font-family:inherit; font-size:16px; font-weight:700;
@@ -154,7 +161,7 @@
       <text x="122" y="74" font-family="Arial" font-size="20" font-weight="600" letter-spacing="8" fill="#3D3D3D">INVEST</text>
     </svg>
     <h1>Nivelir</h1>
-    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0104</span>
+    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0854</span>
     <div class="dot" id="dot" title="Povezava"></div>
   </header>
 
@@ -199,6 +206,8 @@
       <div><span>Referenca</span><b id="stRef">0</b></div>
       <div><span>Horizont vizure</span><b id="stHorizont">—</b></div>
     </div>
+
+    <button class="refbar" id="refBar" style="display:none"></button>
 
     <div class="entry">
       <div class="hint" id="entryHint">Odčitek nazaj na referenci</div>
@@ -466,7 +475,7 @@ async function delMeasurement(m){
   await loadMeasurements();
 }
 async function renameRef(){
-  const nn=prompt("Ime referenčne točke (kje stoji nivelir / reper):", theme.ref_name||"");
+  const nn=prompt("Opis reference (npr. 0,00 = tlak pritličja):", theme.ref_name||"");
   if(nn===null) return;
   const name=nn.trim()||null;
   const {error}=await sb.from("nivelir_themes").update({ref_name:name}).eq("id",theme.id);
@@ -493,7 +502,7 @@ function render(){
 
   $("ptName").style.display="block";   // ime-polje vedno vidno
   if(editing) $("ptName").placeholder="Ime točke";
-  else if(theme.backsight==null) $("ptName").placeholder="Ime reference (kje stoji nivelir)";
+  else if(theme.backsight==null) $("ptName").placeholder="Opis reference (npr. 0,00 = tlak pritličja)";
   else $("ptName").placeholder="Ime točke (neobvezno)";
 
   const showSign=(theme.backsight!=null && mode==="setout");
@@ -509,6 +518,16 @@ function render(){
 
   $("stRef").textContent=zeroStr()+" "+U();
   $("stHorizont").textContent=(theme.backsight==null)?"—":fmt(horizont())+" "+U();
+
+  const rb=$("refBar");
+  if(theme.backsight==null){ rb.style.display="none"; }
+  else{
+    rb.style.display="block";
+    const nm=theme.ref_name;
+    rb.innerHTML="📍 Referenca "+zeroStr()+" "+U()+" = "+
+      (nm?'<span class="rn">'+esc(nm)+'</span>':'<span class="rn">brez imena — klikni za vpis</span>')+
+      '<span class="ed">uredi ✎</span>';
+  }
 
   const rl=$("resLabel"), rv=$("resValue"), rn=$("resNum"), ru=$("resUnit"), rs=$("resSub");
   if(editing){
@@ -584,6 +603,7 @@ $("btnReset").onclick=async()=>{
   await loadMeasurements();
 };
 $("cancelEdit").onclick=cancelEdit;
+$("refBar").onclick=renameRef;
 $("histBtn").onclick=openDrawer;
 $("drawerClose").onclick=closeDrawer;
 $("drawerOv").onclick=closeDrawer;
