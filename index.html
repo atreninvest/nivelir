@@ -180,7 +180,7 @@
       <text x="122" y="74" font-family="Arial" font-size="20" font-weight="600" letter-spacing="8" fill="#3D3D3D">INVEST</text>
     </svg>
     <h1>Nivelir</h1>
-    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0959</span>
+    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-1620</span>
     <div class="dot" id="dot" title="Povezava"></div>
   </header>
 
@@ -437,7 +437,7 @@ async function openLevel(t){
   channel = sb.channel("rt_level_"+t.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"nivelir_measurements",filter:`theme_id=eq.${t.id}`}, loadMeasurements)
     .on("postgres_changes",{event:"*",schema:"public",table:"nivelir_themes",filter:`id=eq.${t.id}`}, p=>{
-        if(p.new){ theme.backsight=p.new.backsight; theme.unit=p.new.unit; theme.ref_name=p.new.ref_name; render(); } })
+        if(p.new){ theme.backsight=p.new.backsight; theme.unit=p.new.unit; theme.ref_name=p.new.ref_name; theme.ref_elevation=p.new.ref_elevation; render(); } })
     .subscribe(st=>{ if(st==="SUBSCRIBED") setStatus(true,"Povezano (živo)"); });
 }
 async function loadMeasurements(){
@@ -446,9 +446,11 @@ async function loadMeasurements(){
   setStatus(true,"Povezano"); measurements=data||[]; render();
 }
 function horizont(){ return theme.backsight; }   // referenca = 0
+function hasElev(){ return !!theme && theme.ref_elevation!=null; }   // je vpisana nadm. višina reference
+function absM(delta){ return theme.ref_elevation + delta; }         // absolutna nadm. višina točke (m)
 
 // keypad
-function effSign(){ return (theme.backsight!=null && mode==="setout" && !newHorizon) ? entrySign : 1; }
+function effSign(){ return (theme.backsight!=null && mode==="setout" && !newHorizon && !hasElev()) ? entrySign : 1; }
 function parseInput(){
   if(input===""||input===",") return NaN;
   const v=parseFloat(input.replace(",",".")); if(isNaN(v)) return NaN;
@@ -461,12 +463,14 @@ function press(k){
   if(input==="0") input="";
   const d=input.indexOf(",");
   if(d!==-1 && input.length-d-1>=DEC[U()]) return;
-  if(input.replace(",","").length>=7) return;
+  if(input.replace(",","").length>=9) return;   // dovolj tudi za nadm. višine (npr. 2864,000)
   input+=k; render();
 }
 function calcRD(v){   // vrne {reading, delta} glede na način; ali null če neveljavno
   if(mode==="measure"){ if(v<0) return null; return {reading:v, delta:horizont()-v}; }
-  return {delta:v, reading:horizont()-v};
+  // zakoličba: če je vpisana nadm. višina reference, je v = ciljna ABSOLUTNA višina
+  if(hasElev()){ const delta=v - theme.ref_elevation; return {delta, reading:horizont()-delta}; }
+  return {delta:v, reading:horizont()-v};   // sicer v = relativna ciljna višina (±)
 }
 async function commit(){
   const v=parseInput(); if(isNaN(v)) return;
@@ -524,6 +528,7 @@ function startEdit(m){
   closeDrawer();
   editingId=m.id; mode=m.mode;
   if(m.mode==="measure"){ entrySign=1; input=editValStr(m.reading); }
+  else if(hasElev()){ entrySign=1; input=editValStr(absM(m.delta)); }   // zakoličba z nadm. višino
   else { entrySign=(m.delta<0?-1:1); input=editValStr(Math.abs(m.delta)); }
   $("ptName").value=m.name;
   render();
@@ -539,12 +544,20 @@ async function delMeasurement(m){
   await loadMeasurements();
 }
 async function renameRef(){
-  const nn=prompt("Opis reference (npr. 0,00 = tlak pritličja):", theme.ref_name||"");
+  const nn=prompt("Opis reference (npr. tlak pritličja):", theme.ref_name||"");
   if(nn===null) return;
+  const cur = theme.ref_elevation!=null ? String(theme.ref_elevation).replace(".",",") : "";
+  const el=prompt("Nadmorska višina reference v METRIH\n(prazno = brez / relativni način):", cur);
+  let ref_elevation = theme.ref_elevation;
+  if(el!==null){
+    const t=el.trim().replace(",",".");
+    if(t==="") ref_elevation=null;
+    else { const num=parseFloat(t); if(!isNaN(num)) ref_elevation=num; }
+  }
   const name=nn.trim()||null;
-  const {error}=await sb.from("nivelir_themes").update({ref_name:name}).eq("id",theme.id);
+  const {error}=await sb.from("nivelir_themes").update({ref_name:name, ref_elevation}).eq("id",theme.id);
   if(error){ alert("Napaka: "+error.message); return; }
-  theme.ref_name=name; render();
+  theme.ref_name=name; theme.ref_elevation=ref_elevation; render();
 }
 async function setUnit(u){
   if(!theme || u===theme.unit) return;
@@ -569,7 +582,7 @@ function render(){
   else if(theme.backsight==null) $("ptName").placeholder="Opis reference (npr. 0,00 = tlak pritličja)";
   else $("ptName").placeholder="Ime točke (neobvezno)";
 
-  const showSign=(theme.backsight!=null && mode==="setout" && !newHorizon);
+  const showSign=(theme.backsight!=null && mode==="setout" && !newHorizon && !hasElev());
   $("signBtn").style.display=showSign?"inline-block":"none";
   $("signBtn").textContent=entrySign<0?"−":"+";
   $("cancelEdit").style.display = (editing||newHorizon) ? "block" : "none";
@@ -580,6 +593,7 @@ function render(){
   else if(editing){ $("entryHint").textContent="Urejam: "+editing.name; $("btnOk").textContent="Shrani spremembo"; }
   else if(theme.backsight==null){ $("entryHint").textContent="Odčitek nazaj + ime reference"; $("btnOk").textContent="Potrdi odčitek nazaj"; }
   else if(mode==="measure"){ $("entryHint").textContent="Odčitek na lati — "+nextName; $("btnOk").textContent="Potrdi "+nextName.toLowerCase(); }
+  else if(hasElev()){ $("entryHint").textContent="Ciljna NADM. višina — "+nextName+" (m n.m.)"; $("btnOk").textContent="Izračunaj odčitek"; }
   else{ $("entryHint").textContent="Ciljna višina — "+nextName+" (± glede na ref.)"; $("btnOk").textContent="Izračunaj odčitek"; }
 
   $("stHorizont").textContent=(theme.backsight==null)?"—":fmt(horizont())+" "+U();
@@ -589,9 +603,14 @@ function render(){
   else{
     rb.style.display="block";
     const nm=theme.ref_name;
-    rb.innerHTML="📍 Referenca "+zeroStr()+" "+U()+" = "+
-      (nm?'<span class="rn">'+esc(nm)+'</span>':'<span class="rn">brez imena — klikni za vpis</span>')+
-      '<span class="ed">uredi ✎</span>';
+    if(hasElev()){
+      rb.innerHTML="📍 Referenca <span class=\"rn\">"+fmt(theme.ref_elevation)+" "+U()+" n.m.</span>"+
+        (nm?" = "+esc(nm):"")+'<span class="ed">uredi ✎</span>';
+    } else {
+      rb.innerHTML="📍 Referenca "+zeroStr()+" "+U()+" = "+
+        (nm?'<span class="rn">'+esc(nm)+'</span>':'<span class="rn">brez imena — klikni za vpis</span>')+
+        '<span class="ed">uredi ✎</span>';
+    }
   }
 
   const rl=$("resLabel"), rv=$("resValue"), rn=$("resNum"), ru=$("resUnit"), rs=$("resSub");
@@ -607,19 +626,26 @@ function render(){
     rl.textContent="Referenca"; rv.className="value info"; rn.textContent="Vnesi odčitek nazaj"; ru.textContent=""; rs.textContent="na referenčni točki (višina 0)";
   } else if(!measurements.length){
     rl.textContent="Pripravljen"; rv.className="value info";
-    rn.textContent=(mode==="measure")?"Meri točke":"Podaj ciljno višino"; ru.textContent="";
-    rs.textContent="Horizont vizure = "+fmt(horizont())+" "+U();
+    rn.textContent=(mode==="measure")?"Meri točke":(hasElev()?"Podaj nadm. višino":"Podaj ciljno višino"); ru.textContent="";
+    rs.textContent="Horizont vizure = "+fmt(horizont())+" "+U()+(hasElev()?" ("+fmt(absM(horizont()))+" n.m.)":"");
   } else {
     const last=measurements[measurements.length-1];
+    const n=measurements.length;
     if(last.mode==="measure"){
       const c=klass(last.delta);
-      rl.textContent="#"+measurements.length+" "+last.name+" — glede na referenco"; rv.className="value "+c;
-      rn.textContent=(c==="zero"?"±"+zeroStr():fmtSigned(last.delta)); ru.textContent=U();
-      rs.textContent="odčitek "+fmt(last.reading)+" "+U();
+      if(hasElev()){
+        rl.textContent="#"+n+" "+last.name+" — nadm. višina"; rv.className="value "+c;
+        rn.textContent=fmt(absM(last.delta)); ru.textContent=U();
+        rs.textContent="odčitek "+fmt(last.reading)+" "+U()+" · Δ "+(c==="zero"?"±"+zeroStr():fmtSigned(last.delta))+" "+U();
+      } else {
+        rl.textContent="#"+n+" "+last.name+" — glede na referenco"; rv.className="value "+c;
+        rn.textContent=(c==="zero"?"±"+zeroStr():fmtSigned(last.delta)); ru.textContent=U();
+        rs.textContent="odčitek "+fmt(last.reading)+" "+U();
+      }
     } else {
-      rl.textContent="#"+measurements.length+" "+last.name+" — odčitaj na lati:"; rv.className="value info";
+      rl.textContent="#"+n+" "+last.name+" — odčitaj na lati:"; rv.className="value info";
       rn.textContent=fmt(last.reading); ru.textContent=U();
-      rs.textContent="za višino "+fmtSigned(last.delta)+" "+U();
+      rs.textContent=(hasElev()?"za nadm. višino "+fmt(absM(last.delta)):"za višino "+fmtSigned(last.delta))+" "+U();
     }
   }
   renderMeasurements();
@@ -631,14 +657,21 @@ function renderMeasurements(){
   body.innerHTML="";
   if(theme.backsight==null){ body.innerHTML='<div class="muted">Najprej vnesi odčitek nazaj na referenci.</div>'; return; }
   const frag=document.createDocumentFragment();
-  frag.appendChild(mkRow(null,"ref", theme.ref_name||"Referenca", "odčitek nazaj "+fmt(theme.backsight)+" "+U()+" · klikni za ime", zeroStr()));
+  const refSub=(hasElev()?"nadm. višina "+fmt(theme.ref_elevation)+" "+U()+" · ":"")+"odčitek nazaj "+fmt(theme.backsight)+" "+U()+" · uredi";
+  frag.appendChild(mkRow(null,"ref", theme.ref_name||"Referenca", refSub, hasElev()?fmt(theme.ref_elevation)+" "+U():zeroStr()));
   if(!measurements.length){
     const m=document.createElement("div"); m.className="muted"; m.textContent="Ni še izmerjenih točk."; frag.appendChild(m);
   }
   measurements.forEach((p,i)=>{
     const c=klass(p.delta);
-    const val=(c==="zero"?"±"+zeroStr():fmtSigned(p.delta))+" "+U();
-    const sub=(p.mode==="setout"?"zakoličba • odčitaj ":"odčitek ")+fmt(p.reading)+" "+U();
+    let val, sub;
+    if(hasElev()){
+      val=fmt(absM(p.delta))+" "+U();
+      sub=(p.mode==="setout"?"zakoličba • odčitaj ":"odčitek ")+fmt(p.reading)+" "+U()+" · Δ "+(c==="zero"?"±"+zeroStr():fmtSigned(p.delta));
+    } else {
+      val=(c==="zero"?"±"+zeroStr():fmtSigned(p.delta))+" "+U();
+      sub=(p.mode==="setout"?"zakoličba • odčitaj ":"odčitek ")+fmt(p.reading)+" "+U();
+    }
     frag.appendChild(mkRow(p,c,p.name,sub,val,i+1));
   });
   body.appendChild(frag);
