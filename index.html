@@ -48,6 +48,7 @@
   .card .t{font-size:20px; font-weight:800;}
   .card .t small{display:block; font-size:13px; color:var(--neutral); font-weight:700;}
   .card .go{font-size:26px; color:var(--accent); font-weight:800;}
+  .card .edit{font-size:18px; color:var(--brand); background:transparent; border:0; padding:6px 8px; cursor:pointer; font-weight:800;}
   .card .del{font-size:20px; color:var(--minus); background:transparent; border:0; padding:6px 10px; cursor:pointer; font-weight:800;}
   .muted{text-align:center; color:var(--neutral); font-weight:700; padding:24px 10px; font-size:15px;}
 
@@ -161,7 +162,7 @@
       <text x="122" y="74" font-family="Arial" font-size="20" font-weight="600" letter-spacing="8" fill="#3D3D3D">INVEST</text>
     </svg>
     <h1>Nivelir</h1>
-    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0854</span>
+    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0908</span>
     <div class="dot" id="dot" title="Povezava"></div>
   </header>
 
@@ -203,7 +204,6 @@
     </div>
 
     <div class="status">
-      <div><span>Referenca</span><b id="stRef">0</b></div>
       <div><span>Horizont vizure</span><b id="stHorizont">—</b></div>
     </div>
 
@@ -317,9 +317,10 @@ function renderProjects(){
   el.innerHTML="<h2>Projekti</h2>";
   projects.forEach(p=>{
     const c=document.createElement("div"); c.className="card";
-    c.innerHTML=`<div class="t">${esc(p.name)}</div><div style="display:flex;align-items:center;gap:4px">
-      <button class="del" data-del="${p.id}" title="Izbriši">✕</button><span class="go">›</span></div>`;
+    c.innerHTML=`<div class="t">${esc(p.name)}</div><div style="display:flex;align-items:center;gap:2px">
+      <button class="edit" data-edit title="Preimenuj">✎</button><button class="del" data-del title="Izbriši">✕</button><span class="go">›</span></div>`;
     c.onclick=()=>openThemes(p);
+    c.querySelector("[data-edit]").onclick=e=>{e.stopPropagation(); renameProject(p);};
     c.querySelector("[data-del]").onclick=e=>{e.stopPropagation(); delProject(p);};
     el.appendChild(c);
   });
@@ -337,6 +338,13 @@ async function addProject(){
 async function delProject(p){
   if(!confirm(`Izbrišem projekt "${p.name}" in vse njegove pozicije in meritve?`)) return;
   await sb.from("nivelir_projects").delete().eq("id",p.id); loadProjects();
+}
+async function renameProject(p){
+  const nn=prompt("Ime projekta:", p.name); if(nn===null) return;
+  const name=nn.trim(); if(!name) return;
+  const {error}=await sb.from("nivelir_projects").update({name}).eq("id",p.id);
+  if(error){ alert("Napaka: "+error.message); return; }
+  loadProjects();
 }
 
 // ===== TEME =====
@@ -357,9 +365,10 @@ function renderThemes(){
   themes.forEach(t=>{
     const c=document.createElement("div"); c.className="card";
     const bs = (t.backsight==null) ? "brez odčitka nazaj" : ("horizont "+t.backsight.toFixed(3).replace(".",",")+" m");
-    c.innerHTML=`<div class="t">${esc(t.name)}<small>${bs}</small></div><div style="display:flex;align-items:center;gap:4px">
-      <button class="del" data-del="${t.id}" title="Izbriši">✕</button><span class="go">›</span></div>`;
+    c.innerHTML=`<div class="t">${esc(t.name)}<small>${bs}</small></div><div style="display:flex;align-items:center;gap:2px">
+      <button class="edit" data-edit title="Preimenuj">✎</button><button class="del" data-del title="Izbriši">✕</button><span class="go">›</span></div>`;
     c.onclick=()=>openLevel(t);
+    c.querySelector("[data-edit]").onclick=e=>{e.stopPropagation(); renameTheme(t);};
     c.querySelector("[data-del]").onclick=e=>{e.stopPropagation(); delTheme(t);};
     el.appendChild(c);
   });
@@ -378,6 +387,13 @@ async function addTheme(){
 async function delTheme(t){
   if(!confirm(`Izbrišem pozicijo "${t.name}" in vse njene meritve?`)) return;
   await sb.from("nivelir_themes").delete().eq("id",t.id); loadThemes();
+}
+async function renameTheme(t){
+  const nn=prompt("Ime pozicije:", t.name); if(nn===null) return;
+  const name=nn.trim(); if(!name) return;
+  const {error}=await sb.from("nivelir_themes").update({name}).eq("id",t.id);
+  if(error){ alert("Napaka: "+error.message); return; }
+  loadThemes();
 }
 
 // ===== MERITEV (level) =====
@@ -433,7 +449,7 @@ async function commit(){
     const {error}=await sb.from("nivelir_measurements")
       .update({name:nmField||m.name, reading:rd.reading, delta:rd.delta, mode}).eq("id",editingId);
     if(error){ alert("Napaka: "+error.message); return; }
-    editingId=null; input=""; entrySign=1; $("ptName").value="";
+    editingId=null; input=""; $("ptName").value="";   // predznak ostane
     await loadMeasurements();
     return;
   }
@@ -451,7 +467,7 @@ async function commit(){
   // --- Nova točka ---
   const rd=calcRD(v); if(!rd) return;
   const nm=nmField||"Točka "+(measurements.length+1);
-  input=""; entrySign=1; $("ptName").value="";
+  input=""; $("ptName").value="";   // predznak (+/−) ostane za naslednjo točko
   const {error}=await sb.from("nivelir_measurements").insert({theme_id:theme.id, name:nm, reading:rd.reading, delta:rd.delta, mode});
   if(error){ alert("Napaka: "+error.message); return; }
   await loadMeasurements();
@@ -466,10 +482,10 @@ function startEdit(m){
   try{ $("screenLevel").scrollTop=0; window.scrollTo(0,0);}catch(e){}
 }
 function editValStr(meters){ return toU(meters).toFixed(DEC[U()]).replace(".",","); }
-function cancelEdit(){ editingId=null; input=""; entrySign=1; $("ptName").value=""; render(); }
+function cancelEdit(){ editingId=null; input=""; $("ptName").value=""; render(); }
 async function delMeasurement(m){
   if(!confirm(`Izbrišem "${m.name}"?`)) return;
-  if(editingId===m.id){ editingId=null; input=""; entrySign=1; $("ptName").value=""; }
+  if(editingId===m.id){ editingId=null; input=""; $("ptName").value=""; }
   const {error}=await sb.from("nivelir_measurements").delete().eq("id",m.id);
   if(error){ alert("Napaka: "+error.message); return; }
   await loadMeasurements();
@@ -516,7 +532,6 @@ function render(){
   else if(mode==="measure"){ $("entryHint").textContent="Odčitek na lati — "+nextName; $("btnOk").textContent="Potrdi "+nextName.toLowerCase(); }
   else{ $("entryHint").textContent="Ciljna višina — "+nextName+" (± glede na ref.)"; $("btnOk").textContent="Izračunaj odčitek"; }
 
-  $("stRef").textContent=zeroStr()+" "+U();
   $("stHorizont").textContent=(theme.backsight==null)?"—":fmt(horizont())+" "+U();
 
   const rb=$("refBar");
@@ -612,7 +627,7 @@ $("drawerOv").onclick=closeDrawer;
 $("keys").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) press(b.dataset.k); });
 $("signBtn").addEventListener("click",()=>{ entrySign=-entrySign; render(); });
 $("unitSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) setUnit(b.dataset.u); });
-$("modeSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ if(b.dataset.m!==mode){ mode=b.dataset.m; input=""; entrySign=1; render(); } } });
+$("modeSeg").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ if(b.dataset.m!==mode){ mode=b.dataset.m; input=""; render(); } } });
 document.addEventListener("keydown",e=>{
   if(view!=="level") return;
   const t=e.target.tagName; if(t==="INPUT"||t==="TEXTAREA") return;
