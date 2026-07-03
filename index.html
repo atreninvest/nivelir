@@ -142,7 +142,11 @@
   .row.tap{cursor:pointer;}
   .row.ref{border-left-color:var(--brand);} .row.plus{border-left-color:var(--plus);}
   .row.minus{border-left-color:var(--minus);} .row.zero{border-left-color:var(--neutral);}
-  .row .name{font-size:17px; font-weight:800;}
+  .row .lft{display:flex; align-items:center; min-width:0;}
+  .row .num{display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px; padding:0 7px;
+    background:var(--brand); color:#fff; border-radius:14px; font-size:15px; font-weight:800; margin-right:10px; flex:0 0 auto; font-variant-numeric:tabular-nums;}
+  .row .num.rf{background:var(--accent);}
+  .row .name{font-size:17px; font-weight:800; min-width:0;}
   .row .name small{display:block; font-size:12px; color:var(--neutral); font-weight:700;}
   .row .delta{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;}
   .row.plus .delta{color:var(--plus);} .row.minus .delta{color:var(--minus);}
@@ -176,7 +180,7 @@
       <text x="122" y="74" font-family="Arial" font-size="20" font-weight="600" letter-spacing="8" fill="#3D3D3D">INVEST</text>
     </svg>
     <h1>Nivelir</h1>
-    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0922</span>
+    <span id="ver" style="font-size:10px; font-weight:700; opacity:.6; margin-right:6px;">v260703-0959</span>
     <div class="dot" id="dot" title="Povezava"></div>
   </header>
 
@@ -609,11 +613,11 @@ function render(){
     const last=measurements[measurements.length-1];
     if(last.mode==="measure"){
       const c=klass(last.delta);
-      rl.textContent=last.name+" — glede na referenco"; rv.className="value "+c;
+      rl.textContent="#"+measurements.length+" "+last.name+" — glede na referenco"; rv.className="value "+c;
       rn.textContent=(c==="zero"?"±"+zeroStr():fmtSigned(last.delta)); ru.textContent=U();
       rs.textContent="odčitek "+fmt(last.reading)+" "+U();
     } else {
-      rl.textContent=last.name+" — odčitaj na lati:"; rv.className="value info";
+      rl.textContent="#"+measurements.length+" "+last.name+" — odčitaj na lati:"; rv.className="value info";
       rn.textContent=fmt(last.reading); ru.textContent=U();
       rs.textContent="za višino "+fmtSigned(last.delta)+" "+U();
     }
@@ -631,24 +635,25 @@ function renderMeasurements(){
   if(!measurements.length){
     const m=document.createElement("div"); m.className="muted"; m.textContent="Ni še izmerjenih točk."; frag.appendChild(m);
   }
-  measurements.forEach(p=>{
+  measurements.forEach((p,i)=>{
     const c=klass(p.delta);
     const val=(c==="zero"?"±"+zeroStr():fmtSigned(p.delta))+" "+U();
     const sub=(p.mode==="setout"?"zakoličba • odčitaj ":"odčitek ")+fmt(p.reading)+" "+U();
-    frag.appendChild(mkRow(p,c,p.name,sub,val));
+    frag.appendChild(mkRow(p,c,p.name,sub,val,i+1));
   });
   body.appendChild(frag);
 }
 function openDrawer(){ $("drawer").classList.add("open"); $("drawerOv").classList.add("open"); }
 function closeDrawer(){ $("drawer").classList.remove("open"); $("drawerOv").classList.remove("open"); }
-function mkRow(p,cls,name,sub,delta){
+function mkRow(p,cls,name,sub,delta,num){
   const row=document.createElement("div");
   const isEditing = p && editingId===p.id;
   row.className="row "+cls+((p||cls==="ref")?" tap":"")+(isEditing?" editing":"");
+  const badge = (num!=null) ? `<span class="num">${num}</span>` : (cls==="ref"?`<span class="num rf">R</span>`:"");
   const right = p
     ? `<div class="rgt"><div class="delta">${delta}</div><button class="rowdel" title="Izbriši">✕</button></div>`
     : `<div class="delta">${delta}</div>`;
-  row.innerHTML=`<div class="name">${esc(name)}<small>${sub}</small></div>${right}`;
+  row.innerHTML=`<div class="lft">${badge}<div class="name">${esc(name)}<small>${sub}</small></div></div>${right}`;
   if(p){
     row.querySelector(".name").onclick=()=>startEdit(p);
     row.querySelector(".delta").onclick=()=>startEdit(p);
